@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 # Created on 2014/11/13
+import random
+
 __author__ = 'restran'
 
 # 导入设置信息
@@ -18,7 +20,6 @@ from tornado.options import define, options
 
 from subs_filter import SubsFilter
 from settings import config, forward_list
-
 
 logger = logging.getLogger(__name__)
 
@@ -49,53 +50,25 @@ class ProxyHandler(tornado.web.RequestHandler):
 
         # 检查跳转的地址是后端哪个网站
         is_exist = False
-        site_name = self._site_name
         for site in forward_list.values():
             if site.netloc == netloc:
-                site_name = site.name
                 is_exist = True
                 break
 
-        # Location 有可能是公网的网站，不是后端网站
         if is_exist:
             scheme = config.local_protocol
             netloc = config.local_netloc
             # 地址是后端网站，需要添加站点标识
-            path = '/.site.' + site_name + url_parsed.path
+            path = url_parsed.path
 
         # scheme, netloc, path, params, query, fragment
         return urlunparse((scheme, netloc, path,
                            url_parsed.params, url_parsed.query, url_parsed.fragment))
 
     def _parse_site(self, uri):
-        """
-        解析出所请求的是后端的哪个站点
-        """
-        # 有的url中添加了前缀站点标识，在Location网页跳转中，只能在url添加前缀来标识站点
-        # /.site.site_name/xxx
-        uri_parsed = urlparse(uri)
-        path = uri_parsed.path
-        paths = path.split('/')
-        site_name = None
-        if len(paths) > 1 and len(paths[1]) > 6 and paths[1][:6] == '.site.':
-            site_name = paths[1][6:]
-            # 去掉.site标识
-            paths.pop(1)
-            path = '/'.join(paths)
+        self._site_name = "default"
 
-        if site_name is not None:
-            # 去掉.site标识后，重新组织uri
-            uri = urlunparse(('', '', path, uri_parsed.params,
-                              uri_parsed.query, uri_parsed.fragment))
-        else:
-            # 在后续的网页请求中不会自动在URL添加站点前缀，需要通过Cookie来判断请求的后端站点
-            site_name = self.get_cookie(".site")
-            if site_name is None:
-                return False, None, None
-
-        self._site_name = site_name
-
-        forward_site = forward_list.get(site_name, None)
+        forward_site = forward_list.get(self._site_name, None)
         if forward_site is None:
             return False, None, None
         else:
@@ -104,10 +77,18 @@ class ProxyHandler(tornado.web.RequestHandler):
             self._backend_site = forward_site
             return True, url, forward_site.netloc
 
-
     @asynchronous
     def get(self):
         self._do_fetch('GET')
+
+    @staticmethod
+    def _get_fake_ip():
+        ip_pool = ["218", "218", "22", "66", "218", "218", "129", "54", "202", "204", "70", "62", "67", "59", "61",
+                   "69", "222", "221", "100", "3", "53", "60", "40", "218", "217", "62", "63", "64", "199", "62", "122",
+                   "211"]
+        face_ip = random.choice(ip_pool) + "." + random.choice(ip_pool) + "." + random.choice(
+            ip_pool) + "." + random.choice(ip_pool)
+        return face_ip
 
     def _do_fetch(self, method):
         uri = self.request.uri
@@ -123,14 +104,14 @@ class ProxyHandler(tornado.web.RequestHandler):
         headers = dict(self.request.headers)
         # 更新host字段为后端访问网站的host
         headers['Host'] = host
-        # 去掉 cookie 中的.site字段
-        if 'Cookie' in headers:
-            cookies = headers['Cookie'].split(';')
-            for i in range(len(cookies)):
-                if cookies[i].strip() == '.site=' + self._site_name:
-                    cookies.pop(i)
-                    break
-            headers['Cookie'] = ';'.join(cookies)
+
+        if config.using_fake_ip:
+            fake_ip = self._get_fake_ip()
+            headers['CLIENT-IP'] = fake_ip
+            headers['X-FORWARDED-FOR'] = fake_ip
+
+        if config.no_cookie:
+            headers['Cookie'] = ""
 
         if 'Authorization' in headers:
             auth_header_value = headers['Authorization']
@@ -181,24 +162,6 @@ class ProxyHandler(tornado.web.RequestHandler):
             except ValueError:
                 logger.info("proxy failed for %s, error: unknown status code,  %s" % (self._backend_url, response.code))
                 raise HTTPError(500)
-
-            # 设置 cookie，需放在set_header前面，因为那边也有Set-Cookie
-            # 如果写在后面，这里调用的clear_all_cookies，会把那些也清掉
-            # cookie 为空，或者不等于当前的site_name，就需要设置
-            cookie_site = self.get_cookie(".site")
-            if self._site_name:
-                if not cookie_site:
-                    self.set_cookie(".site", self._site_name)
-                elif cookie_site != self._site_name:
-                    # 如果后端站点不同，就清除旧的cookies，避免互相干扰
-                    # 通过设置过期时间小于当前时间，expires=True，来实现
-                    # 有可能出现打开新的站点后，旧站点的登录信息失效
-                    # 解决这个问题的方法就是不清除旧的cookies
-                    if config.is_to_clear_old_cookies:
-                        self.clear_all_cookies()
-
-                    # 添加新站点的标识，会覆盖掉旧的
-                    self.set_cookie(".site", self._site_name)
 
             logger.debug(u"后端站点响应 headers: %s" % response.headers)
 

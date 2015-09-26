@@ -28,6 +28,8 @@ class Config(object):
 
     # 站点变换的时候，是否清除旧站点的cookies
     is_to_clear_old_cookies = True
+    using_fake_ip = True
+    no_cookie = True
 
 
 class Development(Config):
@@ -62,6 +64,7 @@ class Production(Config):
     local_netloc = '127.0.0.1:9000'
     local_port = 9000
 
+
 # 设置默认配置为开发环境
 # config = Production()
 config = Development()
@@ -73,14 +76,9 @@ logging.basicConfig(
 
 from subs_filter import SubsFilterRules
 # 转发到后端需要代理的网站的地址列表
-# todo access list，允许访问的后端网站下的具体链接
 forward_list = {
-    "baidu": BackendSite('baidu', 'http://www.baidu.com', 'www.baidu.com', []),
-    "douban": BackendSite('douban', 'http://www.douban.com', 'www.douban.com', [
-        SubsFilterRules('.', r'http://www\.douban\.com', '/.site.douban'),
+    "default": BackendSite('baidu', 'http://ebook.jiani.info/', 'ebook.jiani.info', [
         SubsFilterRules('.', r'http://img3\.douban\.com', '/.site.img3.douban'),
-        SubsFilterRules('.', r'http://img5\.douban\.com', '/.site.img5.douban'),
     ]),
-    "img3.douban": BackendSite('douban', 'http://img3.douban.com', 'img3.douban.com', []),
-    "img5.douban": BackendSite('douban', 'http://img5.douban.com', 'img5.douban.com', []),
+
 }
