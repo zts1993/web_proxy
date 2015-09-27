@@ -79,6 +79,7 @@ from subs_filter import SubsFilterRules
 forward_list = {
     "default": BackendSite('baidu', 'http://ebook.jiani.info/', 'ebook.jiani.info', [
         SubsFilterRules('.', r'http://img3\.douban\.com', '/.site.img3.douban'),
+        SubsFilterRules('.', r'搬书匠', '一个更好的搬书匠'),
     ]),
 
 }
